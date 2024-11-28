@@ -1,0 +1,215 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r}
+install.packages("readxl")
+library(readxl)
+install.packages("dplyr") 
+library(dplyr)
+install.packages("tidyverse")
+library(tidyverse)
+install.packages("tidyr")
+library(tidyr)
+
+```
+
+```{r}
+abundances <- read_excel("C:/Users/samue/OneDrive - UGent/Documenten/Master 1/Large Scale Analysis/Datamining/abundances.xlsx")
+
+metadata <- read.csv("C:/Users/samue/OneDrive - UGent/Documenten/Master 1/Large Scale Analysis/Datamining/metadata.csv")
+
+head(abundances)
+head(metadata)
+```
+
+
+```{r}
+colnames(metadata)
+```
+
+```{r}
+summary(abundances)
+```
+
+```{r}
+summary(metadata)
+```
+```{r}
+abundances <- abundances %>%
+  mutate(across(-c(1:3), as.numeric))
+```
+
+
+```{r}
+install.packages("skimr")
+library(skimr)
+skim(abundances)
+```
+```{r}
+# Install
+install.packages("dplyr")
+install.packages("tidyr")
+# Load the library
+library(dplyr)
+library(tidyr)
+
+
+missing_summary <- abundances %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Missing_Values") %>%
+  mutate(Missing_Percentage = (Missing_Values / nrow(abundances)) * 100) %>%
+  arrange(desc(Missing_Percentage))
+
+print(missing_summary)
+```
+
+
+#exploren van NA
+
+```{r}
+install.packages("ggplot2")
+library(ggplot2)
+
+normal_tissue <- abundances[, grepl("P$", colnames(abundances))]
+missing_NT <- normal_tissue %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Missing_Values") %>%
+  mutate(Missing_Percentage = (Missing_Values / nrow(normal_tissue)) * 100) %>%
+  arrange(desc(Missing_Percentage))
+
+print(missing_NT)
+missing_NT %>%
+  ggplot(aes(x = reorder(Variable, Missing_Percentage), y = Missing_Percentage)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Percentage of Missing Values by Variable", x = "Variables", y = "Percentage of Missing Values") +
+  theme_minimal()
+
+tumor_tissue <- abundances[, grepl("T$", colnames(abundances))]
+missing_TT <- tumor_tissue %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Missing_Values") %>%
+  mutate(Missing_Percentage = (Missing_Values / nrow(tumor_tissue)) * 100) %>%
+  arrange(desc(Missing_Percentage))
+
+print(missing_TT)
+missing_TT %>%
+  ggplot(aes(x = reorder(Variable, Missing_Percentage), y = Missing_Percentage)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Percentage of Missing Values by Variable", x = "Variables", y = "Percentage of Missing Values") +
+  theme_minimal()
+```
+```{r}
+abundances[, -c(1:3)] <- lapply(abundances[, -c(1:3)], function(x) {
+  x[is.na(x)] <- 0
+  return(x)})
+
+summary(abundances)
+```
+```{r}
+tp53bp1_data <- abundances %>% 
+  filter(Symbol == "TP53BP1")
+# Maak aparte datasets voor tumor (T) en paired tumor (P)
+tp53bp1_tumor <- tp53bp1_data %>%
+  select(Symbol, ends_with("T")) %>%
+  pivot_longer(cols = -Symbol, names_to = "Sample", values_to = "Expression") %>%
+  mutate(Type = "Tumor")
+
+tp53bp1_paired <- tp53bp1_data %>%
+  select(Symbol, ends_with("P")) %>%
+  pivot_longer(cols = -Symbol, names_to = "Sample", values_to = "Expression") %>%
+  mutate(Type = "Paired")
+
+# Combineer de twee datasets voor visualisatie
+tp53bp1_combined <- bind_rows(tp53bp1_tumor, tp53bp1_paired)
+
+ggplot(tp53bp1_combined, aes(x = Type, y = Expression, fill = Type)) +
+  geom_boxplot() +
+  labs(title = "TP53BP1 Expression in Tumor vs Paired Tumor",
+       x = "Type", 
+       y = "Expression") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Tumor" = "red", "Paired" = "blue"))
+```
+
+```{r}
+# Maak een histogram van de proteïne-abundantie
+ggplot(tp53bp1_combined, aes(x = Expression, fill = Type)) + 
+  geom_histogram(binwidth = 50000, color = "black", alpha = 0.7, position = "dodge") +
+  facet_wrap(~ Type, scales = "free") +  # Dit maakt een apart histogram voor elke groep
+  labs(title = "Histogram van TP53BP1 Expressie (Paired vs Tumor)",
+       x = "Expressie", 
+       y = "Frequentie") +
+  scale_fill_manual(values = c("Paired" = "blue", "Tumor" = "red")) +
+  theme_minimal()
+```
+```{r}
+# Splits de data per Type (Tumor en Paired)
+tp53bp1_tumor <- tp53bp1_combined %>% filter(Type == "Tumor")
+tp53bp1_paired <- tp53bp1_combined %>% filter(Type == "Paired")
+
+# Bereken Q1, Q3 en IQR voor Tumor (T)
+Q1_tumor <- quantile(tp53bp1_tumor$Expression, 0.25)
+Q3_tumor <- quantile(tp53bp1_tumor$Expression, 0.75)
+IQR_tumor <- Q3_tumor - Q1_tumor
+lower_bound_tumor <- Q1_tumor - (1.5 * IQR_tumor)
+upper_bound_tumor <- Q3_tumor + (1.5 * IQR_tumor)
+
+# Bereken Q1, Q3 en IQR voor Paired Tumor (P)
+Q1_paired <- quantile(tp53bp1_paired$Expression, 0.25)
+Q3_paired <- quantile(tp53bp1_paired$Expression, 0.75)
+IQR_paired <- Q3_paired - Q1_paired
+lower_bound_paired <- Q1_paired - (1.5 * IQR_paired)
+upper_bound_paired <- Q3_paired + (1.5 * IQR_paired)
+
+# Verwijder outliers voor Tumor (T)
+tp53bp1_tumor_no_outliers <- tp53bp1_tumor %>%
+  filter(Expression >= lower_bound_tumor & Expression <= upper_bound_tumor)
+
+# Verwijder outliers voor Paired Tumor (P)
+tp53bp1_paired_no_outliers <- tp53bp1_paired %>%
+  filter(Expression >= lower_bound_paired & Expression <= upper_bound_paired)
+
+# Combineer de data zonder outliers
+tp53bp1_combined_no_outliers <- bind_rows(tp53bp1_tumor_no_outliers, tp53bp1_paired_no_outliers)
+
+# Maak de boxplot zonder dat er outliers zichtbaar zijn
+ggplot(tp53bp1_combined_no_outliers, aes(x = Type, y = Expression, fill = Type)) +
+  geom_boxplot(outlier.shape = NA) +  # Verberg outliers
+  labs(title = "TP53BP1 Expression in Tumor vs Paired Tumor (Without Outliers)",
+       x = "Type", 
+       y = "Expression") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Tumor" = "red", "Paired" = "blue"))
+```
+
+```{r}
+ggplot(tp53bp1_combined_no_outliers, aes(x = Expression, fill = Type)) + 
+  geom_histogram(binwidth = 50000, color = "black", alpha = 0.7, position = "dodge") + 
+  facet_wrap(~ Type, scales = "free") +  # Maak een apart histogram voor elke groep
+  labs(title = "Histogram van TP53BP1 Expressie (Zonder Outliers)",
+       x = "Expressie", 
+       y = "Frequentie") +
+  scale_fill_manual(values = c("Paired" = "blue", "Tumor" = "red")) +
+  theme_minimal()
+```
+```{r}
+#niet normaal verdeeld, dus een man whitney U test
+mann_whitney_result <- wilcox.test(Expression ~ Type, data = tp53bp1_combined_no_outliers)
+print(mann_whitney_result)
+```
+#lage p-waarde -> TP53B1 wordt significant meer geëxpresseerd in tumor.
